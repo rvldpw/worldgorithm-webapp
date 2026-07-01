@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Worldgorithm | FIFA WC 2026 Predictor</title>
+  <meta name="description" content="FIFA World Cup 2026 match predictions using ELO ratings, XGBoost and Monte Carlo simulation. By Rivaldi Paw."/>
+  <meta property="og:title" content="Worldgorithm - WC 2026 Predictions"/>
+  <meta property="og:description" content="Blind match predictions from game 1. ELO + XGBoost + Monte Carlo."/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: #0c0208;
+      color: #f2ece8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #1a0510; }
+    ::-webkit-scrollbar-thumb { background: #4a1a30; border-radius: 3px; }
+    #root { min-height: 100vh; }
+
+    /* Loading screen */
+    .loader {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100vh; gap: 20px;
+    }
+    .loader-ball {
+      width: 56px; height: 56px; border-radius: 50%;
+      border: 3px solid rgba(230,48,48,0.2);
+      border-top-color: #e63030;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-text { font-size: 14px; color: #9d8a94; font-weight: 600; }
+
+    /* Tab active animation */
+    button { font-family: inherit; }
+    button:focus { outline: none; }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr !important; }
+      .prob-label { width: 110px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="loader">
+      <div class="loader-ball"></div>
+      <div class="loader-text">Loading predictions...</div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // ── Config ────────────────────────────────────────────────────────────────
+    // Change HF_REPO to your Hugging Face dataset repo ID
+    const HF_REPO = "rvlpw/worldcup-2026-datapool";
+    const HF_BASE = "https://huggingface.co/datasets/" + HF_REPO + "/resolve/main";
+    const PREDICTIONS_URL = HF_BASE + "/predictions.json";
+
+    // ── WC 2026 Colors ────────────────────────────────────────────────────────
+    const C = {
+      bg: "#0c0208",
+      card: "rgba(28,6,18,0.92)",
+      border: "rgba(180,30,50,0.22)",
+      red: "#e63030",
+      redDim: "rgba(230,48,48,0.12)",
+      purple: "#a855f7",
+      purpleDim: "rgba(168,85,247,0.12)",
+      gold: "#d97706",
+      goldDim: "rgba(217,119,6,0.12)",
+      green: "#22c55e",
+      greenDim: "rgba(34,197,94,0.12)",
+      text: "#f2ece8",
+      muted: "#9d8a94",
+      dim: "#5a4a52",
+      headerBg: "rgba(12,2,8,0.96)",
+    };
+
+    // ── Flag map ──────────────────────────────────────────────────────────────
+    const FLAGS = {
+      "Mexico":"🇲🇽","South Africa":"🇿🇦","Korea Republic":"🇰🇷","Czechia":"🇨🇿",
+      "USA":"🇺🇸","Paraguay":"🇵🇾","Canada":"🇨🇦","Bosnia":"🇧🇦",
+      "Portugal":"🇵🇹","Qatar":"🇶🇦","Australia":"🇦🇺","Turkiye":"🇹🇷",
+      "Germany":"🇩🇪","Curaçao":"🇨🇼","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨",
+      "Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳",
+      "Belgium":"🇧🇪","Egypt":"🇪🇬","Iran":"🇮🇷","New Zealand":"🇳🇿",
+      "France":"🇫🇷","Senegal":"🇸🇳","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷",
+      "Norway":"🇳🇴","Iraq":"🇮🇶","Brazil":"🇧🇷","Ghana":"🇬🇭",
+      "Morocco":"🇲🇦","Uzbekistan":"🇺🇿","Panama":"🇵🇦","Congo DR":"🇨🇩",
+      "Algeria":"🇩🇿","Switzerland":"🇨🇭","Spain":"🇪🇸","Austria":"🇦🇹",
+      "Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Colombia":"🇨🇴","Argentina":"🇦🇷","Uruguay":"🇺🇾",
+      "Cape Verde":"🇨🇻","Ghana":"🇬🇭","Serbia":"🇷🇸","Saudi Arabia":"🇸🇦",
+    };
+    const flag = t => FLAGS[t] || "🏳";
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function dayLabel(s) {
+      const d = new Date(s + "T12:00:00");
+      return d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" });
+    }
+
+    function poissonProb(k, lam) {
+      let logP = -lam + k * Math.log(lam + 1e-9);
+      for (let i = 1; i <= k; i++) logP -= Math.log(i);
+      return Math.exp(logP);
+    }
+
+    function topScores(xgH, xgA, n = 5) {
+      const scores = [];
+      for (let i = 0; i <= 6; i++)
+        for (let j = 0; j <= 6; j++)
+          scores.push({
+            score: i + "-" + j,
+            pct: +(poissonProb(i, xgH) * poissonProb(j, xgA) * 100).toFixed(1)
+          });
+      return scores.sort((a, b) => b.pct - a.pct).slice(0, n);
+    }
+
+    // ── Background layer ──────────────────────────────────────────────────────
+    function Background() {
+      return (
+        <div style={{ position:"fixed", inset:0, zIndex:0, pointerEvents:"none", overflow:"hidden" }}>
+          <div style={{ position:"absolute", top:"-10%", left:"-5%", width:400, height:400,
+            background:"radial-gradient(circle, rgba(180,30,40,0.18) 0%, transparent 70%)", borderRadius:"50%" }}/>
+          <div style={{ position:"absolute", top:"30%", right:"-10%", width:500, height:500,
+            background:"radial-gradient(circle, rgba(120,60,180,0.14) 0%, transparent 70%)", borderRadius:"50%" }}/>
+          <div style={{ position:"absolute", bottom:"-5%", left:"20%", width:450, height:450,
+            background:"radial-gradient(circle, rgba(200,140,0,0.10) 0%, transparent 70%)", borderRadius:"50%" }}/>
+          <div style={{ position:"absolute", top:"60%", left:"-5%", width:300, height:300,
+            background:"radial-gradient(circle, rgba(0,160,120,0.10) 0%, transparent 70%)", borderRadius:"50%" }}/>
+          <svg width="100%" height="100%" style={{ opacity:0.045, position:"absolute", inset:0 }}>
+            <defs>
+              <pattern id="ballpat" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+                <circle cx="50" cy="50" r="36" fill="none" stroke="#fff" strokeWidth="1.4"/>
+                <polygon points="50,18 63,27 58,42 42,42 37,27" fill="none" stroke="#fff" strokeWidth="1.1"/>
+                <polygon points="50,82 63,73 58,58 42,58 37,73" fill="none" stroke="#fff" strokeWidth="1.1"/>
+                <polygon points="16,50 25,37 40,42 40,58 25,63" fill="none" stroke="#fff" strokeWidth="1.1"/>
+                <polygon points="84,50 75,37 60,42 60,58 75,63" fill="none" stroke="#fff" strokeWidth="1.1"/>
+                <polygon points="21,28 36,27 42,42 30,52 16,50" fill="none" stroke="#fff" strokeWidth="0.8"/>
+                <polygon points="79,28 64,27 58,42 70,52 84,50" fill="none" stroke="#fff" strokeWidth="0.8"/>
+                <polygon points="21,72 36,73 42,58 30,48 16,50" fill="none" stroke="#fff" strokeWidth="0.8"/>
+                <polygon points="79,72 64,73 58,58 70,48 84,50" fill="none" stroke="#fff" strokeWidth="0.8"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#ballpat)"/>
+          </svg>
+          <svg style={{ position:"absolute", top:"-80px", right:"-80px", opacity:0.06 }} width="320" height="320">
+            <circle cx="160" cy="160" r="150" fill="none" stroke="#e63030" strokeWidth="2"/>
+            <circle cx="160" cy="160" r="110" fill="none" stroke="#a855f7" strokeWidth="1"/>
+            <circle cx="160" cy="160" r="70" fill="none" stroke="#d97706" strokeWidth="1"/>
+          </svg>
+          <svg style={{ position:"absolute", bottom:"-60px", left:"-60px", opacity:0.06 }} width="260" height="260">
+            <circle cx="130" cy="130" r="120" fill="none" stroke="#a855f7" strokeWidth="2"/>
+            <circle cx="130" cy="130" r="80" fill="none" stroke="#e63030" strokeWidth="1"/>
+          </svg>
+        </div>
+      );
+    }
+
+    // ── Probability bars ──────────────────────────────────────────────────────
+    function ProbBars({ ph, pd, pa, home, away }) {
+      const bars = [
+        { l: "🏠  " + home, v: ph, c: C.red },
+        { l: "🤝  Draw",    v: pd, c: C.purple },
+        { l: "✈️  " + away, v: pa, c: C.gold },
+      ];
+      return (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {bars.map(({ l, v, c }) => (
+            <div key={l} style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div className="prob-label" style={{ width:150, fontSize:12, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{l}</div>
+              <div style={{ flex:1, height:8, background:"rgba(255,255,255,0.06)", borderRadius:4, overflow:"hidden" }}>
+                <div style={{ width:v + "%", height:"100%", background:"linear-gradient(90deg," + c + "," + c + "99)", borderRadius:4, transition:"width 0.5s" }}/>
+              </div>
+              <div style={{ width:42, textAlign:"right", fontSize:13, fontWeight:800, color:c }}>{v}%</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ── Score probability table ───────────────────────────────────────────────
+    function ScoreTable({ xgh, xga, actualScore }) {
+      const sc = topScores(xgh, xga);
+      return (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr" }}>
+          {["Score", "Chance"].map(h => (
+            <div key={h} style={{ fontSize:11, fontWeight:700, color:C.dim, paddingBottom:6, borderBottom:"1px solid rgba(255,255,255,0.07)" }}>{h}</div>
+          ))}
+          {sc.map(({ score, pct }) => {
+            const hit = score === actualScore;
+            return [
+              <div key={score + "s"} style={{ fontSize:13, fontWeight:hit?800:400, color:hit?C.green:C.text, padding:"5px 0", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                {score}{hit ? " ✓" : ""}
+              </div>,
+              <div key={score + "p"} style={{ fontSize:13, fontWeight:hit?800:400, color:hit?C.green:C.muted, padding:"5px 0", textAlign:"right", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                {pct}%
+              </div>
+            ];
+          })}
+        </div>
+      );
+    }
+
+    // ── Match card ────────────────────────────────────────────────────────────
+    function Card({ m, isPlayed }) {
+      const [open, setOpen] = useState(false);
+      const actualScore = isPlayed ? (m.home_score + "-" + m.away_score) : null;
+      const maxP = Math.max(m.ph, m.pd, m.pa);
+      const strength = maxP >= 70 ? "Strong edge" : maxP >= 55 ? "Good edge" : "Tight match";
+
+      const pickLabel = m.ph >= m.pd && m.ph >= m.pa
+        ? "🏠 " + m.home
+        : m.pa >= m.pd ? "✈️ " + m.away : "🤝 Draw";
+      const pickPct = m.ph >= m.pd && m.ph >= m.pa
+        ? m.ph : m.pa >= m.pd ? m.pa : m.pd;
+
+      const borderCol = isPlayed
+        ? (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
+        : C.border;
+      const correctColor = m.correct ? C.green : "#ef4444";
+      const stripeGrad = isPlayed
+        ? (m.correct ? "linear-gradient(90deg,#22c55e,#16a34a)" : "linear-gradient(90deg,#ef4444,#dc2626)")
+        : "linear-gradient(90deg," + C.red + "," + C.purple + "," + C.gold + ")";
+
+      const roundLabel = m.round || "Group Stage";
+      const homeFlag = m.home_flag || flag(m.home);
+      const awayFlag = m.away_flag || flag(m.away);
+
+      return (
+        <div style={{ background:C.card, border:"1px solid " + borderCol, borderRadius:16, overflow:"hidden", backdropFilter:"blur(8px)", position:"relative" }}>
+          <div style={{ height:3, background:stripeGrad }}/>
+          <div onClick={() => setOpen(o => !o)} style={{ padding:"14px 16px", cursor:"pointer" }}>
+
+            {/* Header row */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <span style={{ fontSize:11, color:C.muted, fontWeight:600 }}>{dayLabel(m.date)} · {roundLabel}</span>
+              {isPlayed ? (
+                <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20,
+                  background:m.correct ? C.greenDim : "rgba(239,68,68,0.12)",
+                  color:correctColor,
+                  border:"1px solid " + (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
+                }}>
+                  {m.correct ? "✓ Correct" : "✗ Wrong"}{m.pk ? " (90-min draw)" : ""}
+                </span>
+              ) : (
+                <span style={{ fontSize:11, color:C.gold, fontWeight:700 }}>🔒 Locked</span>
+              )}
+            </div>
+
+            {/* Teams row */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:26 }}>{homeFlag}</div>
+                <div style={{ fontSize:15, fontWeight:800, color:C.text, marginTop:4 }}>{m.home}</div>
+              </div>
+              {isPlayed ? (
+                <div style={{ textAlign:"center", minWidth:80 }}>
+                  <div style={{ fontSize:28, fontWeight:900, color:C.text, letterSpacing:3 }}>{m.home_score}-{m.away_score}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>FULL TIME</div>
+                  {m.pk && <div style={{ fontSize:10, color:C.gold, marginTop:3, fontWeight:700 }}>{m.pk_winner} wins PKs</div>}
+                </div>
+              ) : (
+                <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:10, padding:"6px 16px", fontWeight:800, fontSize:15, color:C.muted }}>VS</div>
+              )}
+              <div style={{ flex:1, textAlign:"right" }}>
+                <div style={{ fontSize:26 }}>{awayFlag}</div>
+                <div style={{ fontSize:15, fontWeight:800, color:C.text, marginTop:4 }}>{m.away}</div>
+              </div>
+            </div>
+
+            {/* Chances */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1, marginBottom:10 }}>📊 CHANCES</div>
+              <ProbBars ph={m.ph} pd={m.pd} pa={m.pa} home={m.home} away={m.away}/>
+            </div>
+
+            {/* xG */}
+            <div style={{ fontSize:12, color:C.text, marginBottom:12, fontFamily:"'Courier New',monospace", fontWeight:700, background:"rgba(255,255,255,0.04)", padding:"7px 10px", borderRadius:8 }}>
+              ⚡ xG: <span style={{ color:C.red }}>{m.xgh}</span> vs <span style={{ color:C.gold }}>{m.xga}</span>
+            </div>
+
+            {/* Pick */}
+            <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:"10px 14px", border:"1px solid " + (isPlayed ? (m.correct ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)") : C.border) }}>
+              <div style={{ fontSize:13, fontWeight:800, color:isPlayed ? correctColor : C.red }}>
+                🔴 {pickLabel} ({pickPct}%)
+              </div>
+              <div style={{ fontSize:11, fontStyle:"italic", color:C.muted, marginTop:3 }}>
+                {strength} on {m.pw === "Draw" ? "a draw" : m.pw}. {maxP >= 65 ? "Worth a play." : "Proceed with caution."}
+              </div>
+            </div>
+
+            <div style={{ textAlign:"right", marginTop:8, fontSize:11, color:C.dim }}>{open ? "▲ less" : "▼ more"}</div>
+          </div>
+
+          {/* Expanded detail */}
+          {open && (
+            <div style={{ padding:"0 16px 16px", borderTop:"1px solid rgba(255,255,255,0.07)" }}>
+              {m.bullets && m.bullets.length > 0 && (
+                <div style={{ marginTop:14 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1, marginBottom:10 }}>📖 READ</div>
+                  {m.bullets.map((b, i) => (
+                    <div key={i} style={{ display:"flex", gap:8, fontSize:12, color:"#d4c8cc", lineHeight:1.7, marginBottom:5 }}>
+                      <span style={{ color:C.red, minWidth:8, fontWeight:700 }}>•</span>
+                      <span>{b}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop:16 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1, marginBottom:10 }}>🔥 LIKELY SCORES</div>
+                <ScoreTable xgh={m.xgh} xga={m.xga} actualScore={actualScore}/>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Accuracy tab ──────────────────────────────────────────────────────────
+    function AccuracyTab({ meta, played }) {
+      const groupM = played.filter(m => !m.round || m.round === "Group Stage");
+      const r32M = played.filter(m => m.round && m.round !== "Group Stage");
+      const gAcc = groupM.length ? Math.round(groupM.filter(m => m.correct).length / groupM.length * 100) : 0;
+      const r32Acc = r32M.length ? Math.round(r32M.filter(m => m.correct).length / r32M.length * 100) : null;
+      const pkM = played.filter(m => m.pk);
+
+      return (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ background:C.card, border:"1px solid " + C.border, borderRadius:14, padding:"20px", backdropFilter:"blur(8px)" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1.5, textTransform:"uppercase", marginBottom:18 }}>Performance by stage</div>
+            {[
+              { l:"Overall (" + meta.total + " games)", v:meta.accuracy, c:C.gold },
+              { l:"Group Stage (" + groupM.length + " games)", v:gAcc, c:C.green },
+              r32Acc !== null ? { l:"Round of 32 (" + r32M.length + " games)", v:r32Acc, c:C.purple } : null,
+            ].filter(Boolean).map(({ l, v, c }) => (
+              <div key={l} style={{ marginBottom:18 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:7 }}>
+                  <span style={{ fontSize:12, color:C.muted, fontWeight:600 }}>{l}</span>
+                  <span style={{ fontSize:15, fontWeight:900, color:c }}>{v}%</span>
+                </div>
+                <div style={{ height:8, background:"rgba(255,255,255,0.06)", borderRadius:4, overflow:"hidden" }}>
+                  <div style={{ width:v + "%", height:"100%", background:"linear-gradient(90deg," + c + "," + c + "88)", borderRadius:4 }}/>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop:4, padding:"12px 14px", background:"rgba(255,255,255,0.03)", borderRadius:10, fontSize:11, color:C.muted, lineHeight:1.8, border:"1px solid rgba(255,255,255,0.06)" }}>
+              The honest ceiling for ELO-based prediction is around 62-68%. Most wrong predictions are draws predicted as wins — the fundamental hard problem in football.
+            </div>
+          </div>
+
+          <div style={{ background:C.card, border:"1px solid " + C.border, borderRadius:14, padding:"20px", backdropFilter:"blur(8px)" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>Anti-cheat rules</div>
+            {[
+              { icon:"🔒", t:"Locked at kickoff", d:"Each prediction uses only ELO from games already finished. No future data ever enters." },
+              { icon:"📈", t:"ELO learns immediately", d:"Every result adjusts team ratings before the next prediction. Ecuador 2-1 Germany instantly changed Paraguay's prediction odds." },
+              { icon:"⚽", t:"90-minute outcome only", d:"PKs counted as draws. The model predicts football, not coin flips." },
+              { icon:"🎲", t:"PKs are coin flips", d:pkM.length + " match" + (pkM.length !== 1 ? "es" : "") + " went to PKs this tournament. Nobody predicts shootouts reliably." },
+            ].map(({ icon, t, d }) => (
+              <div key={t} style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:16 }}>
+                <span style={{ fontSize:20, minWidth:26 }}>{icon}</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:3 }}>{t}</div>
+                  <div style={{ fontSize:12, color:C.muted, lineHeight:1.7 }}>{d}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Main App ──────────────────────────────────────────────────────────────
+    function App() {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [tab, setTab] = useState("results");
+      const [filter, setFilter] = useState("all");
+
+      const fetchData = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch(PREDICTIONS_URL + "?t=" + Date.now());
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const json = await res.json();
+          setData(json);
+        } catch (err) {
+          setError("Could not load predictions from Hugging Face. " + err.message);
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => { fetchData(); }, [fetchData]);
+
+      if (loading) return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:20 }}>
+          <div style={{ width:56, height:56, borderRadius:"50%", border:"3px solid rgba(230,48,48,0.2)", borderTopColor:"#e63030", animation:"spin 0.9s linear infinite" }}/>
+          <div style={{ fontSize:14, color:C.muted, fontWeight:600 }}>Loading predictions...</div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      );
+
+      if (error) return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", gap:16, padding:24 }}>
+          <div style={{ fontSize:40 }}>⚠️</div>
+          <div style={{ fontSize:16, fontWeight:700, color:"#ef4444" }}>Could not load data</div>
+          <div style={{ fontSize:13, color:C.muted, textAlign:"center", maxWidth:340, lineHeight:1.7 }}>{error}</div>
+          <button onClick={fetchData} style={{ background:C.red, color:"#fff", border:"none", borderRadius:10, padding:"10px 24px", fontSize:14, fontWeight:700, cursor:"pointer" }}>Retry</button>
+        </div>
+      );
+
+      const { meta, played, upcoming } = data;
+      const sorted = [...played].reverse();
+      const filtered = filter === "all" ? sorted
+        : filter === "correct" ? sorted.filter(m => m.correct)
+        : sorted.filter(m => !m.correct);
+      const wrong = played.filter(m => !m.correct).length;
+      const pkM = played.filter(m => m.pk);
+
+      return (
+        <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", position:"relative" }}>
+          <Background/>
+          <div style={{ position:"relative", zIndex:1 }}>
+
+            {/* Header */}
+            <header style={{ borderBottom:"1px solid rgba(180,30,50,0.25)", padding:"20px 20px 0", background:C.headerBg, backdropFilter:"blur(12px)", position:"sticky", top:0, zIndex:10 }}>
+              <div style={{ maxWidth:720, margin:"0 auto" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:6 }}>
+                  <div style={{ fontSize:28 }}>🌍</div>
+                  <div>
+                    <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
+                      <h1 style={{ margin:0, fontSize:24, fontWeight:900, letterSpacing:-0.5, background:"linear-gradient(90deg," + C.red + "," + C.purple + ")", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Worldgorithm</h1>
+                      <span style={{ fontSize:10, fontWeight:800, letterSpacing:1, color:C.gold, background:C.goldDim, padding:"2px 8px", borderRadius:4, border:"1px solid " + C.gold + "44", WebkitTextFillColor:C.gold }}>v2.0</span>
+                    </div>
+                    <p style={{ margin:"2px 0 0", color:C.muted, fontSize:11, fontWeight:500 }}>
+                      WC 2026 · {meta.correct}/{meta.total} correct · {meta.accuracy}% (90-min basis) · Updated {meta.last_updated}
+                    </p>
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:0, marginTop:12, overflowX:"auto" }}>
+                  {[{ id:"results", l:"Results" }, { id:"upcoming", l:"Upcoming" }, { id:"accuracy", l:"Accuracy" }].map(t => (
+                    <button key={t.id} onClick={() => setTab(t.id)} style={{ background:"none", border:"none", cursor:"pointer", padding:"10px 16px", fontSize:13, fontWeight:700, whiteSpace:"nowrap", color:tab === t.id ? C.text : C.muted, borderBottom:tab === t.id ? "2px solid " + C.red : "2px solid transparent", transition:"color 0.15s" }}>
+                      {t.l}
+                      {t.id === "results" && (
+                        <span style={{ marginLeft:6, fontSize:10, background:"rgba(34,197,94,0.15)", color:C.green, padding:"2px 7px", borderRadius:10, fontWeight:800 }}>
+                          {meta.correct}/{meta.total}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </header>
+
+            {/* Main content */}
+            <main style={{ maxWidth:720, margin:"0 auto", padding:"18px 14px 40px" }}>
+
+              {tab === "results" && (
+                <>
+                  {/* Stats strip */}
+                  <div style={{ display:"grid", gridTemplateColumns:"auto 1px 1fr", gap:16, background:C.card, border:"1px solid " + C.border, borderRadius:14, padding:"16px 20px", marginBottom:14, alignItems:"center", backdropFilter:"blur(8px)" }}>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:36, fontWeight:900, background:"linear-gradient(135deg," + C.gold + "," + C.red + ")", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", lineHeight:1 }}>{meta.accuracy}%</div>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:3, fontWeight:600 }}>ACCURACY (90 MIN)</div>
+                    </div>
+                    <div style={{ background:"rgba(255,255,255,0.08)", height:40 }}/>
+                    <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
+                      {[{ v:meta.correct, c:C.green, l:"Correct" }, { v:wrong, c:"#ef4444", l:"Wrong" }, { v:pkM.length, c:C.gold, l:"PK games" }].map(({ v, c, l }) => (
+                        <div key={l} style={{ textAlign:"center" }}>
+                          <div style={{ fontSize:22, fontWeight:900, color:c }}>{v}</div>
+                          <div style={{ fontSize:10, color:C.muted, fontWeight:600 }}>{l}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {pkM.length > 0 && (
+                    <div style={{ background:"rgba(217,119,6,0.08)", border:"1px solid rgba(217,119,6,0.25)", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:12, color:C.muted, lineHeight:1.7 }}>
+                      ⚠️ <strong style={{ color:C.gold }}>Penalty shootouts are coin flips.</strong> Model predicts 90-min outcome only. PKs counted as draws for accuracy.
+                    </div>
+                  )}
+
+                  <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+                    {[{ id:"all", l:"All (" + meta.total + ")" }, { id:"correct", l:"Correct (" + meta.correct + ")" }, { id:"wrong", l:"Wrong (" + wrong + ")" }].map(fi => (
+                      <button key={fi.id} onClick={() => setFilter(fi.id)} style={{ background:filter === fi.id ? C.red : "rgba(255,255,255,0.05)", border:"1px solid " + (filter === fi.id ? C.red : "rgba(255,255,255,0.1)"), color:filter === fi.id ? "#fff" : C.muted, borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>{fi.l}</button>
+                    ))}
+                  </div>
+
+                  <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                    {filtered.map((m, i) => <Card key={i} m={m} isPlayed={true}/>)}
+                  </div>
+                </>
+              )}
+
+              {tab === "upcoming" && (
+                <>
+                  <div style={{ background:"rgba(168,85,247,0.07)", border:"1px solid rgba(168,85,247,0.2)", borderRadius:10, padding:"11px 15px", marginBottom:16, fontSize:12, color:C.muted, lineHeight:1.7 }}>
+                    Predictions locked before kickoff. ELO updated from all played matches. No future data used.
+                  </div>
+                  {upcoming.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:"60px 20px", color:C.muted }}>
+                      <div style={{ fontSize:40, marginBottom:12 }}>🏆</div>
+                      <div style={{ fontSize:16, fontWeight:700 }}>No upcoming matches yet</div>
+                      <div style={{ fontSize:13, marginTop:6 }}>Check back after the next notebook run.</div>
+                    </div>
+                  ) : (
+                    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                      {upcoming.map((m, i) => <Card key={i} m={m} isPlayed={false}/>)}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tab === "accuracy" && <AccuracyTab meta={meta} played={played}/>}
+
+            </main>
+
+            {/* Footer */}
+            <footer style={{ borderTop:"1px solid rgba(180,30,50,0.2)", padding:"20px", textAlign:"center", background:"rgba(12,2,8,0.9)" }}>
+              <div style={{ maxWidth:720, margin:"0 auto" }}>
+                <div style={{ fontSize:13, fontWeight:900, background:"linear-gradient(90deg," + C.red + "," + C.purple + "," + C.gold + ")", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", marginBottom:6 }}>
+                  🌍 Worldgorithm
+                </div>
+                <div style={{ fontSize:11, color:C.muted, lineHeight:1.8 }}>
+                  For educational purposes only. Not financial or betting advice.
+                </div>
+                <div style={{ fontSize:11, color:C.dim, marginTop:4 }}>
+                  Built by <span style={{ color:C.text, fontWeight:700 }}>Rivaldi Paw</span> · ELO + XGBoost + Monte Carlo · FIFA WC 2026
+                </div>
+              </div>
+            </footer>
+
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
