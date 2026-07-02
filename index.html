@@ -89,66 +89,18 @@
 
     // ── Flag map ──────────────────────────────────────────────────────────────
     const FLAGS = {
-      "Canada":"🇨🇦",
-      "Mexico":"🇲🇽",
-      "USA":"🇺🇸",
-      "United States":"🇺🇸",
-      "Australia":"🇦🇺",
-      "Iraq":"🇮🇶",
-      "Iran":"🇮🇷",
-      "IR Iran":"🇮🇷",
-      "Japan":"🇯🇵",
-      "Jordan":"🇯🇴",
-      "Korea Republic":"🇰🇷",
-      "South Korea":"🇰🇷",
-      "Qatar":"🇶🇦",
-      "Saudi Arabia":"🇸🇦",
-      "Uzbekistan":"🇺🇿",
-      "Algeria":"🇩🇿",
-      "Cape Verde":"🇨🇻",
-      "Cabo Verde":"🇨🇻",
-      "Congo DR":"🇨🇩",
-      "DR Congo":"🇨🇩",
-      "Ivory Coast":"🇨🇮",
-      "Côte d'Ivoire":"🇨🇮",
-      "Cote d'Ivoire":"🇨🇮",
-      "Egypt":"🇪🇬",
-      "Ghana":"🇬🇭",
-      "Morocco":"🇲🇦",
-      "Senegal":"🇸🇳",
-      "South Africa":"🇿🇦",
-      "Tunisia":"🇹🇳",
-      "Curaçao":"🇨🇼",
-      "Curacao":"🇨🇼",
-      "Haiti":"🇭🇹",
-      "Panama":"🇵🇦",
-      "Argentina":"🇦🇷",
-      "Brazil":"🇧🇷",
-      "Colombia":"🇨🇴",
-      "Ecuador":"🇪🇨",
-      "Paraguay":"🇵🇾",
-      "Uruguay":"🇺🇾",
-      "New Zealand":"🇳🇿",
-      "Austria":"🇦🇹",
-      "Belgium":"🇧🇪",
-      "Bosnia and Herzegovina":"🇧🇦",
-      "Bosnia":"🇧🇦",
-      "Croatia":"🇭🇷",
-      "Czechia":"🇨🇿",
-      "Czech Republic":"🇨🇿",
-      "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-      "France":"🇫🇷",
-      "Germany":"🇩🇪",
-      "Netherlands":"🇳🇱",
-      "Norway":"🇳🇴",
-      "Portugal":"🇵🇹",
-      "Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-      "Spain":"🇪🇸",
-      "Sweden":"🇸🇪",
-      "Switzerland":"🇨🇭",
-      "Türkiye":"🇹🇷",
-      "Turkiye":"🇹🇷",
-      "Turkey":"🇹🇷",
+      "Mexico":"🇲🇽","South Africa":"🇿🇦","Korea Republic":"🇰🇷","Czechia":"🇨🇿",
+      "USA":"🇺🇸","Paraguay":"🇵🇾","Canada":"🇨🇦","Bosnia":"🇧🇦","Bosnia-Herzegovina":"🇧🇦","Bosnia and Herzegovina":"🇧🇦",
+      "Portugal":"🇵🇹","Qatar":"🇶🇦","Australia":"🇦🇺","Turkiye":"🇹🇷",
+      "Germany":"🇩🇪","Curaçao":"🇨🇼","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨",
+      "Netherlands":"🇳🇱","Japan":"🇯🇵","Sweden":"🇸🇪","Tunisia":"🇹🇳",
+      "Belgium":"🇧🇪","Egypt":"🇪🇬","Iran":"🇮🇷","New Zealand":"🇳🇿",
+      "France":"🇫🇷","Senegal":"🇸🇳","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷",
+      "Norway":"🇳🇴","Iraq":"🇮🇶","Brazil":"🇧🇷","Ghana":"🇬🇭",
+      "Morocco":"🇲🇦","Uzbekistan":"🇺🇿","Panama":"🇵🇦","Congo DR":"🇨🇩",
+      "Algeria":"🇩🇿","Switzerland":"🇨🇭","Spain":"🇪🇸","Austria":"🇦🇹",
+      "Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Colombia":"🇨🇴","Argentina":"🇦🇷","Uruguay":"🇺🇾",
+      "Cape Verde":"🇨🇻","Ghana":"🇬🇭","Serbia":"🇷🇸","Saudi Arabia":"🇸🇦",
     };
     const flag = t => FLAGS[t] || "🏳";
 
@@ -316,8 +268,13 @@
               {isPlayed ? (
                 <div style={{ textAlign:"center", minWidth:80 }}>
                   <div style={{ fontSize:28, fontWeight:900, color:C.text, letterSpacing:3 }}>{m.home_score}-{m.away_score}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>FULL TIME</div>
-                  {m.pk && <div style={{ fontSize:10, color:C.gold, marginTop:3, fontWeight:700 }}>{m.pk_winner} wins PKs</div>}
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>{m.pk ? "90 MIN" : "FULL TIME"}</div>
+                  {m.pk && (
+                    <div style={{ marginTop:4, background:"rgba(217,119,6,0.12)", border:"1px solid rgba(217,119,6,0.3)", borderRadius:6, padding:"3px 8px" }}>
+                      <div style={{ fontSize:10, color:C.gold, fontWeight:800 }}>PKs: {m.pk_score || "?"}</div>
+                      <div style={{ fontSize:9, color:C.muted }}>{m.pk_winner} advances</div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:10, padding:"6px 16px", fontWeight:800, fontSize:15, color:C.muted }}>VS</div>
@@ -404,7 +361,7 @@
               </div>
             ))}
             <div style={{ marginTop:4, padding:"12px 14px", background:"rgba(255,255,255,0.03)", borderRadius:10, fontSize:11, color:C.muted, lineHeight:1.8, border:"1px solid rgba(255,255,255,0.06)" }}>
-              The honest ceiling for ELO-based prediction is around 62-68%. Most wrong predictions are draws predicted as wins — the fundamental hard problem in football.
+              The honest ceiling for ELO-based prediction is around 62-68%. Most wrong predictions are draws predicted as wins - the fundamental hard problem in football.
             </div>
           </div>
 
