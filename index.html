@@ -338,32 +338,6 @@
                 <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1, marginBottom:10 }}>🔥 LIKELY SCORES</div>
                 <ScoreTable xgh={m.xgh} xga={m.xga} actualScore={actualScore}/>
               </div>
-              {m.secondary && (
-                <div style={{ marginTop:16 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1, marginBottom:10 }}>📐 SECONDARY MARKETS</div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    {(() => {
-                      const side = m.secondary.hdp_side;
-                      const teamName = side === "home" ? m.home : m.away;
-                      const lineForTeam = side === "home" ? m.secondary.hdp_line : -m.secondary.hdp_line;
-                      const sign = lineForTeam > 0 ? "+" : "";
-                      return (
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:"8px 12px", border:"1px solid rgba(255,255,255,0.06)" }}>
-                          <span style={{ fontSize:12, color:C.text, fontWeight:600 }}>Asian Handicap</span>
-                          <span style={{ fontSize:12, fontWeight:800, color:C.purple }}>{teamName} {sign}{lineForTeam} ({m.secondary.hdp_pct}%)</span>
-                        </div>
-                      );
-                    })()}
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"rgba(255,255,255,0.03)", borderRadius:8, padding:"8px 12px", border:"1px solid rgba(255,255,255,0.06)" }}>
-                      <span style={{ fontSize:12, color:C.text, fontWeight:600 }}>Over/Under</span>
-                      <span style={{ fontSize:12, fontWeight:800, color:C.gold }}>{m.secondary.ou_pick} {m.secondary.ou_line} ({m.secondary.ou_pct}%)</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize:10, color:C.dim, marginTop:8, lineHeight:1.6, fontStyle:"italic" }}>
-                    Derived from the same goal-simulation grid as Likely Scores above -- secondary read on margin/total, not a replacement for the main pick.
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
