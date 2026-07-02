@@ -220,11 +220,20 @@
       const maxP = Math.max(m.ph, m.pd, m.pa);
       const strength = maxP >= 70 ? "Strong edge" : maxP >= 55 ? "Good edge" : "Tight match";
 
-      const pickLabel = m.ph >= m.pd && m.ph >= m.pa
-        ? "🏠 " + m.home
-        : m.pa >= m.pd ? "✈️ " + m.away : "🤝 Draw";
-      const pickPct = m.ph >= m.pd && m.ph >= m.pa
-        ? m.ph : m.pa >= m.pd ? m.pa : m.pd;
+      // Knockout ties the model calls as a draw can't actually stay level -- the notebook's
+      // predict_scheduled_fixtures() already resolved those via a 20,000-flip PK simulation
+      // and stamped pk_shootout / pk_pick_pct on the row. Use that pick instead of
+      // recomputing straight off ph/pd/pa, which would just say "Draw" again.
+      const isPk = !!m.pk_shootout;
+      const pickLabel = isPk
+        ? m.pw + " on penalties"
+        : (m.ph >= m.pd && m.ph >= m.pa
+            ? "🏠 " + m.home
+            : m.pa >= m.pd ? "✈️ " + m.away : "🤝 Draw");
+      const pickPct = isPk
+        ? m.pk_pick_pct
+        : (m.ph >= m.pd && m.ph >= m.pa
+            ? m.ph : m.pa >= m.pd ? m.pa : m.pd);
 
       const borderCol = isPlayed
         ? (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
@@ -298,11 +307,13 @@
 
             {/* Pick */}
             <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:"10px 14px", border:"1px solid " + (isPlayed ? (m.correct ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)") : C.border) }}>
-              <div style={{ fontSize:13, fontWeight:800, color:isPlayed ? correctColor : C.red }}>
-                🔴 {pickLabel} ({pickPct}%)
+              <div style={{ fontSize:13, fontWeight:800, color:isPlayed ? correctColor : (isPk ? C.gold : C.red) }}>
+                {isPk ? "🥅" : "🔴"} {pickLabel} ({pickPct}%)
               </div>
               <div style={{ fontSize:11, fontStyle:"italic", color:C.muted, marginTop:3 }}>
-                {strength} on {m.pw === "Draw" ? "a draw" : m.pw}. {maxP >= 65 ? "Worth a play." : "Proceed with caution."}
+                {isPk
+                  ? "Level after 90 (" + m.pd + "% draw) - " + m.pw + " favoured in " + pickPct + "% of 20,000 simulated shootouts."
+                  : strength + " on " + (m.pw === "Draw" ? "a draw" : m.pw) + ". " + (maxP >= 65 ? "Worth a play." : "Proceed with caution.")}
               </div>
             </div>
 
