@@ -220,20 +220,11 @@
       const maxP = Math.max(m.ph, m.pd, m.pa);
       const strength = maxP >= 70 ? "Strong edge" : maxP >= 55 ? "Good edge" : "Tight match";
 
-      // Knockout ties the model calls as a draw can't actually stay level -- the notebook's
-      // predict_scheduled_fixtures() already resolved those via a 20,000-flip PK simulation
-      // and stamped pk_shootout / pk_pick_pct on the row. Use that pick instead of
-      // recomputing straight off ph/pd/pa, which would just say "Draw" again.
-      const isPk = !!m.pk_shootout;
-      const pickLabel = isPk
-        ? m.pw + " on penalties"
-        : (m.ph >= m.pd && m.ph >= m.pa
-            ? "🏠 " + m.home
-            : m.pa >= m.pd ? "✈️ " + m.away : "🤝 Draw");
-      const pickPct = isPk
-        ? m.pk_pick_pct
-        : (m.ph >= m.pd && m.ph >= m.pa
-            ? m.ph : m.pa >= m.pd ? m.pa : m.pd);
+      const pickLabel = m.ph >= m.pd && m.ph >= m.pa
+        ? "🏠 " + m.home
+        : m.pa >= m.pd ? "✈️ " + m.away : "🤝 Draw";
+      const pickPct = m.ph >= m.pd && m.ph >= m.pa
+        ? m.ph : m.pa >= m.pd ? m.pa : m.pd;
 
       const borderCol = isPlayed
         ? (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
@@ -256,13 +247,26 @@
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <span style={{ fontSize:11, color:C.muted, fontWeight:600 }}>{dayLabel(m.date)} · {roundLabel}</span>
               {isPlayed ? (
-                <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20,
-                  background:m.correct ? C.greenDim : "rgba(239,68,68,0.12)",
-                  color:correctColor,
-                  border:"1px solid " + (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
-                }}>
-                  {m.correct ? "✓ Correct" : "✗ Wrong"}{m.pk ? " (90-min draw)" : ""}
-                </span>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
+                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20,
+                    background:m.correct ? C.greenDim : "rgba(239,68,68,0.12)",
+                    color:correctColor,
+                    border:"1px solid " + (m.correct ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)")
+                  }}>
+                    {m.correct ? "✓ Correct" : "✗ Wrong"}
+                    {m.overconfident_wrong ? " (" + m.confidence + "% confident)" : ""}
+                    {m.pk && m.correct ? " - draw called ✓" : ""}
+                  </span>
+                  {m.pk && m.pk_pred && (
+                    <span style={{ fontSize:10, padding:"2px 8px", borderRadius:20,
+                      background: m.pk_correct ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                      color: m.pk_correct ? C.green : "#ef4444",
+                      border:"1px solid " + (m.pk_correct ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)")
+                    }}>
+                      {m.pk_correct ? "✓" : "✗"} PK pick: {m.pk_pred}
+                    </span>
+                  )}
+                </div>
               ) : (
                 <span style={{ fontSize:11, color:C.gold, fontWeight:700 }}>🔒 Locked</span>
               )}
@@ -279,9 +283,18 @@
                   <div style={{ fontSize:28, fontWeight:900, color:C.text, letterSpacing:3 }}>{m.home_score}-{m.away_score}</div>
                   <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>{m.pk ? "90 MIN" : "FULL TIME"}</div>
                   {m.pk && (
-                    <div style={{ marginTop:4, background:"rgba(217,119,6,0.12)", border:"1px solid rgba(217,119,6,0.3)", borderRadius:6, padding:"3px 8px" }}>
-                      <div style={{ fontSize:10, color:C.gold, fontWeight:800 }}>PKs: {m.pk_score || "?"}</div>
-                      <div style={{ fontSize:9, color:C.muted }}>{m.pk_winner} advances</div>
+                    <div style={{ marginTop:5, display:"flex", flexDirection:"column", gap:2 }}>
+                      <div style={{ background:"rgba(217,119,6,0.12)", border:"1px solid rgba(217,119,6,0.3)", borderRadius:6, padding:"3px 8px", textAlign:"center" }}>
+                        <div style={{ fontSize:10, color:C.gold, fontWeight:800 }}>PKs {m.pk_score || "?"}</div>
+                        <div style={{ fontSize:9, color:C.muted, marginTop:1 }}>{m.pk_winner} advances</div>
+                      </div>
+                      {m.pk_pred && (
+                        <div style={{ background: m.pk_correct ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", borderRadius:6, padding:"2px 8px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color: m.pk_correct ? C.green : "#ef4444", fontWeight:700 }}>
+                            {m.pk_correct ? "✓" : "✗"} We picked {m.pk_pred}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -307,13 +320,11 @@
 
             {/* Pick */}
             <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:"10px 14px", border:"1px solid " + (isPlayed ? (m.correct ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)") : C.border) }}>
-              <div style={{ fontSize:13, fontWeight:800, color:isPlayed ? correctColor : (isPk ? C.gold : C.red) }}>
-                {isPk ? "🥅" : "🔴"} {pickLabel} ({pickPct}%)
+              <div style={{ fontSize:13, fontWeight:800, color:isPlayed ? correctColor : C.red }}>
+                🔴 {pickLabel} ({pickPct}%)
               </div>
               <div style={{ fontSize:11, fontStyle:"italic", color:C.muted, marginTop:3 }}>
-                {isPk
-                  ? "Level after 90 (" + m.pd + "% draw) - " + m.pw + " favoured in " + pickPct + "% of 20,000 simulated shootouts."
-                  : strength + " on " + (m.pw === "Draw" ? "a draw" : m.pw) + ". " + (maxP >= 65 ? "Worth a play." : "Proceed with caution.")}
+                {m.pk && m.correct ? "Draw called correctly in 90 min. PK pick: " + (m.pk_pred || "?") + (m.pk_correct === true ? " won it too." : m.pk_correct === false ? " lost PKs (coin flip)." : "") : strength + " on " + (m.pw === "Draw" ? "a draw" : m.pw) + ". " + (maxP >= 65 ? "Worth a play." : "Proceed with caution.") + (m.overconfident_wrong ? " Model was " + m.confidence + "% confident here." : "")}
               </div>
             </div>
 
@@ -375,6 +386,25 @@
               The honest ceiling for ELO-based prediction is around 62-68%. Most wrong predictions are draws predicted as wins - the fundamental hard problem in football.
             </div>
           </div>
+
+          {meta.pk_total > 0 && (
+            <div style={{ background:C.card, border:"1px solid rgba(217,119,6,0.25)", borderRadius:14, padding:"20px", backdropFilter:"blur(8px)" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.gold, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>Penalty Shootout Predictions</div>
+              <div style={{ display:"flex", gap:24, flexWrap:"wrap", marginBottom:12 }}>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:24, fontWeight:900, color:C.gold }}>{meta.pk_correct}/{meta.pk_total}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>PK PICKS CORRECT</div>
+                </div>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:24, fontWeight:900, color:"#ef4444" }}>{meta.overconfident_wrong || 0}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2, fontWeight:600 }}>HIGH-CONF MISSES</div>
+                </div>
+              </div>
+              <div style={{ fontSize:12, color:C.muted, lineHeight:1.7 }}>
+                Shootouts are coin flips. PK picks use slight ELO edge (max 15% above 50/50) - tracked separately and do not count toward main accuracy. High-confidence misses are matches where model was above 70% certain and still got it wrong.
+              </div>
+            </div>
+          )}
 
           <div style={{ background:C.card, border:"1px solid " + C.border, borderRadius:14, padding:"20px", backdropFilter:"blur(8px)" }}>
             <div style={{ fontSize:11, fontWeight:700, color:C.muted, letterSpacing:1.5, textTransform:"uppercase", marginBottom:14 }}>Anti-cheat rules</div>
